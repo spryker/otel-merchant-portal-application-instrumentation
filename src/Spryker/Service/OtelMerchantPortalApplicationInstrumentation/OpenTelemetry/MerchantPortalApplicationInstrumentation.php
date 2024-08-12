@@ -19,7 +19,6 @@ use OpenTelemetry\SemConv\TraceAttributes;
 use Spryker\Shared\MerchantPortalApplication\MerchantPortalApplication;
 use Spryker\Shared\Opentelemetry\Instrumentation\CachedInstrumentationInterface;
 use Spryker\Shared\Opentelemetry\Request\RequestProcessorInterface;
-use Spryker\Zed\Opentelemetry\Business\Generator\Instrumentation\CachedInstrumentation;
 use Symfony\Component\HttpFoundation\Request;
 use Throwable;
 use function OpenTelemetry\Instrumentation\hook;
@@ -66,10 +65,15 @@ class MerchantPortalApplicationInstrumentation implements MerchantPortalApplicat
         CachedInstrumentationInterface $instrumentation,
         RequestProcessorInterface $request
     ): void {
+        // phpcs:disable
         hook(
             class: MerchantPortalApplication::class,
             function: static::METHOD_NAME,
             pre: static function ($instance, array $params, string $class, string $function, ?string $filename, ?int $lineno) use ($instrumentation, $request): void {
+                if ($instrumentation::getCachedInstrumentation() === null || $request->getRequest() === null) {
+                    return;
+                }
+
                 if (!defined('OTEL_MERCHANT_PORTAL_TRACE_ID')) {
                     define('OTEL_MERCHANT_PORTAL_TRACE_ID', uuid_create());
                 }
@@ -100,16 +104,18 @@ class MerchantPortalApplicationInstrumentation implements MerchantPortalApplicat
                 static::handleError($scope);
             },
         );
+        // phpcs:enable
     }
 
     /**
      * @param \OpenTelemetry\Context\ContextStorageScopeInterface $scope
      *
-     * @return \OpenTelemetry\API\Trace\Span
+     * @return \OpenTelemetry\API\Trace\SpanInterface
      */
     protected static function handleError(ContextStorageScopeInterface $scope): SpanInterface
     {
         $error = error_get_last();
+        $exception = null;
 
         if (is_array($error) && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE], true)) {
             $exception = new Exception(
@@ -120,13 +126,13 @@ class MerchantPortalApplicationInstrumentation implements MerchantPortalApplicat
         $scope->detach();
         $span = Span::fromContext($scope->context());
 
-        if (isset($exception)) {
+        if ($exception !== null) {
             $span->recordException($exception);
         }
 
-        $span->setAttribute(static::ERROR_MESSAGE, isset($exception) ? $exception->getMessage() : '');
-        $span->setAttribute(static::ERROR_CODE, isset($exception) ? $exception->getCode() : '');
-        $span->setStatus(isset($exception) ? StatusCode::STATUS_ERROR : StatusCode::STATUS_OK);
+        $span->setAttribute(static::ERROR_MESSAGE, $exception !== null ? $exception->getMessage() : '');
+        $span->setAttribute(static::ERROR_CODE, $exception !== null ? $exception->getCode() : '');
+        $span->setStatus($exception !== null ? StatusCode::STATUS_ERROR : StatusCode::STATUS_OK);
 
         $span->end();
 
