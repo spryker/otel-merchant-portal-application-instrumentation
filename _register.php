@@ -12,5 +12,5 @@ if (extension_loaded('opentelemetry') === false) {
     return;
 }
 
-MerchantPortalApplicationInstrumentation::register(new CachedInstrumentation(), new RequestProcessor());
+MerchantPortalApplicationInstrumentation::register();
 
